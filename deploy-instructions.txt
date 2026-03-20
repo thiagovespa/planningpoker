@@ -1,0 +1,31 @@
+# Deploy Instructions - Planning Poker MVP
+
+## Após criar o repo no GitHub, execute:
+
+# 1. Adicionar remote (substitua SEU_USUARIO pelo seu username do GitHub)
+git remote add origin https://github.com/SEU_USUARIO/planningpoker.git
+
+# 2. Push inicial
+git push -u origin main
+
+# 3. Verificar
+git remote -v
+
+---
+
+## Deploy no Cloudflare Pages:
+
+1. Acesse: https://dash.cloudflare.com/
+2. Vá em: Workers & Pages → Create → Pages → Connect to Git
+3. Conecte sua conta GitHub
+4. Selecione: planningpoker
+5. Configure:
+   - Framework preset: Svelte
+   - Build command: npm run build
+   - Build output directory: dist
+6. Clique: Save and Deploy
+
+Primeiro deploy: ~2 minutos
+Deploys seguintes: ~30 segundos
+
+URL final: planningpoker.pages.dev (ou custom domain)
