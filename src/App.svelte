@@ -1,12 +1,31 @@
 <script lang="ts">
-  // Planning Poker MVP - Main App Component
-  let roomId = crypto.randomUUID()
-  let shareUrl = `${window.location.origin}/?room=${roomId}`
+  import { onMount, onDestroy } from 'svelte';
+  import { room } from './lib/room.svelte';
+
+  // Get roomId from URL or generate new
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = urlParams.get('room') || crypto.randomUUID();
+  const shareUrl = `${window.location.origin}/?room=${roomId}`;
+
+  // Update URL if new room
+  if (!urlParams.get('room')) {
+    window.history.replaceState({}, '', `?room=${roomId}`);
+  }
 
   function copyToClipboard() {
-    navigator.clipboard.writeText(shareUrl)
-    alert('Link copiado!')
+    navigator.clipboard.writeText(shareUrl);
+    alert('Link copiado!');
   }
+
+  // Connect to WebSocket on mount
+  onMount(() => {
+    room.connect(roomId);
+  });
+
+  // Disconnect on unmount
+  onDestroy(() => {
+    room.disconnect();
+  });
 </script>
 
 <main>
@@ -33,11 +52,11 @@
 
   <section class="status">
     <div class="status-indicator">
-      <span class="dot online"></span>
-      <span>Conectado</span>
+      <span class="dot {room.connected ? 'online' : 'offline'}"></span>
+      <span>{room.connected ? 'Conectado' : 'Conectando...'}</span>
     </div>
     <div class="participants">
-      <span>👤 0 participantes</span>
+      <span>👤 {room.participants.length} participante{room.participants.length !== 1 ? 's' : ''}</span>
     </div>
   </section>
 
@@ -128,6 +147,14 @@
     background: #f9fafb;
     border-radius: 4px;
     margin-bottom: var(--space-lg);
+    color: #1a1a1a;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .status {
+      background: #2a2a2a;
+      color: #f5f5f5;
+    }
   }
 
   .status-indicator {
@@ -145,6 +172,10 @@
   .dot.online {
     background: var(--color-success);
     animation: pulse 2s infinite;
+  }
+
+  .dot.offline {
+    background: var(--color-warning);
   }
 
   @keyframes pulse {

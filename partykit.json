@@ -1,0 +1,4 @@
+{
+  "name": "planningpoker",
+  "main": "party/index.ts"
+}

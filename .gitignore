@@ -27,3 +27,6 @@ dist-ssr
 _bmad/
 _bmad-output/
 .claude/
+
+# Partykit local state
+.partykit/
