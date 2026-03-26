@@ -1,5 +1,6 @@
 {
   "name": "planningpoker",
   "main": "party/index.ts",
-  "port": 1999
+  "port": 1999,
+  "compatibilityDate": "2026-03-26"
 }
