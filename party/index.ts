@@ -17,12 +17,34 @@ interface TimerState {
   isRunning: boolean;
 }
 
+interface Story {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: number;
+}
+
+interface EstimateResult {
+  storyId: string;
+  storyTitle: string;
+  votes: Vote[];
+  average: number | null;
+  mostVoted: number | null; // moda
+  min: number | null;
+  max: number | null;
+  finishedAt: number;
+}
+
 export default class PlanningPokerServer implements Party.Server {
   votes: Map<string, Vote>;
   participants: Map<string, Participant>;
   revealed: boolean;
   anonymous: boolean;
   timer: TimerState;
+  stories: Story[];
+  currentStoryIndex: number;
+  estimateHistory: EstimateResult[];
+  roomName: string;
 
   constructor(readonly room: Party.Room) {
     this.votes = new Map();
@@ -34,6 +56,10 @@ export default class PlanningPokerServer implements Party.Server {
       startTime: null,
       isRunning: false,
     };
+    this.stories = [];
+    this.currentStoryIndex = -1; // -1 = nenhuma história selecionada
+    this.estimateHistory = [];
+    this.roomName = "Sessão de Planning Poker";
   }
 
   onConnect(conn: Party.Connection) {
@@ -57,6 +83,8 @@ export default class PlanningPokerServer implements Party.Server {
         : 0,
     };
 
+    const currentStory = this.currentStoryIndex >= 0 ? this.stories[this.currentStoryIndex] : null;
+
     conn.send(
       JSON.stringify({
         type: "sync",
@@ -66,6 +94,11 @@ export default class PlanningPokerServer implements Party.Server {
         revealed: this.revealed,
         anonymous: this.anonymous,
         timer: timerData,
+        stories: this.stories,
+        currentStoryIndex: this.currentStoryIndex,
+        currentStory: currentStory,
+        estimateHistory: this.estimateHistory,
+        roomName: this.roomName,
       })
     );
 
@@ -128,13 +161,70 @@ export default class PlanningPokerServer implements Party.Server {
         })
       );
     } else if (data.type === "reset") {
+      // Salva estimativa no histórico antes de resetar (se houver história atual e votos)
+      if (this.currentStoryIndex >= 0 && this.votes.size > 0 && this.revealed) {
+        const currentStory = this.stories[this.currentStoryIndex];
+        const votes = Array.from(this.votes.values());
+        const values = votes.map(v => v.value).filter((v): v is number => v !== null);
+
+        let average: number | null = null;
+        let mostVoted: number | null = null;
+        let min: number | null = null;
+        let max: number | null = null;
+
+        if (values.length > 0) {
+          // Média
+          average = values.reduce((a, b) => a + b, 0) / values.length;
+
+          // Min e Max
+          min = Math.min(...values);
+          max = Math.max(...values);
+
+          // Moda (mais votado)
+          const frequency = new Map<number, number>();
+          values.forEach(v => frequency.set(v, (frequency.get(v) || 0) + 1));
+          let maxFreq = 0;
+          frequency.forEach((freq, value) => {
+            if (freq > maxFreq) {
+              maxFreq = freq;
+              mostVoted = value;
+            }
+          });
+        }
+
+        this.estimateHistory.push({
+          storyId: currentStory.id,
+          storyTitle: currentStory.title,
+          votes: votes.map(v => ({ ...v })),
+          average,
+          mostVoted,
+          min,
+          max,
+          finishedAt: Date.now(),
+        });
+      }
+
       // Reinicia a votação
       this.votes.clear();
       this.revealed = false;
 
+      // Avança para próxima história se houver
+      let nextStory: Story | null = null;
+      if (this.currentStoryIndex >= 0 && this.currentStoryIndex < this.stories.length - 1) {
+        this.currentStoryIndex++;
+        nextStory = this.stories[this.currentStoryIndex];
+      } else {
+        // Não há próxima história
+        this.currentStoryIndex = -1;
+        nextStory = null;
+      }
+
       this.room.broadcast(
         JSON.stringify({
           type: "reset",
+          estimateHistory: this.estimateHistory,
+          currentStoryIndex: this.currentStoryIndex,
+          currentStory: nextStory,
         })
       );
     } else if (data.type === "toggle-anonymous") {
@@ -206,6 +296,86 @@ export default class PlanningPokerServer implements Party.Server {
         JSON.stringify({
           type: "timer-duration-changed",
           duration: duration,
+        })
+      );
+    } else if (data.type === "add-story") {
+      // Adiciona nova história
+      const story: Story = {
+        id: crypto.randomUUID(),
+        title: data.title || "Sem título",
+        description: data.description || "",
+        createdAt: Date.now(),
+      };
+
+      this.stories.push(story);
+
+      // Seleciona automaticamente a nova história como atual
+      this.currentStoryIndex = this.stories.length - 1;
+
+      // Limpa votos ao selecionar nova história
+      this.votes.clear();
+      this.revealed = false;
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "stories-updated",
+          stories: this.stories,
+          currentStoryIndex: this.currentStoryIndex,
+          currentStory: story,
+        })
+      );
+    } else if (data.type === "select-story") {
+      // Seleciona história para estimar
+      const index = data.index;
+
+      if (index >= 0 && index < this.stories.length) {
+        this.currentStoryIndex = index;
+
+        // Limpa votos ao selecionar nova história
+        this.votes.clear();
+        this.revealed = false;
+
+        const currentStory = this.stories[this.currentStoryIndex];
+
+        this.room.broadcast(
+          JSON.stringify({
+            type: "story-selected",
+            currentStoryIndex: this.currentStoryIndex,
+            currentStory: currentStory,
+          })
+        );
+      }
+    } else if (data.type === "remove-story") {
+      // Remove história
+      const index = data.index;
+
+      if (index >= 0 && index < this.stories.length) {
+        this.stories.splice(index, 1);
+
+        // Ajusta currentStoryIndex se necessário
+        if (this.currentStoryIndex >= this.stories.length) {
+          this.currentStoryIndex = this.stories.length - 1;
+        }
+
+        const currentStory = this.currentStoryIndex >= 0 ? this.stories[this.currentStoryIndex] : null;
+
+        this.room.broadcast(
+          JSON.stringify({
+            type: "stories-updated",
+            stories: this.stories,
+            currentStoryIndex: this.currentStoryIndex,
+            currentStory: currentStory,
+          })
+        );
+      }
+    } else if (data.type === "set-room-name") {
+      // Define nome da sala
+      this.roomName = data.name || "Sessão de Planning Poker";
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "room-name-changed",
+          roomName: this.roomName,
         })
       );
     }
