@@ -1,18 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import {
-    connect,
-    disconnect,
-    vote,
-    reveal,
-    reset,
-    connected,
-    participants,
-    votes,
-    revealed,
-    myVote,
-    currentUserId
-  } from './lib/room.svelte';
+  import { room } from './lib/room.svelte';
 
   // Get roomId from URL or generate new
   const urlParams = new URLSearchParams(window.location.search);
@@ -32,26 +20,26 @@
   }
 
   function selectCard(value: number) {
-    vote(value);
+    room.vote(value);
   }
 
   function handleReveal() {
-    reveal();
+    room.reveal();
   }
 
   function handleReset() {
-    reset();
+    room.reset();
   }
 
   // Conta quantos participantes já votaram
-  $: votedCount = votes.length;
-  $: totalParticipants = participants.length;
+  $: votedCount = room.votes.length;
+  $: totalParticipants = room.participants.length;
   $: allVoted = votedCount === totalParticipants && totalParticipants > 0;
 
   // Calcula média dos votos revelados
   $: average = (() => {
-    if (!revealed || votes.length === 0) return null;
-    const values = votes
+    if (!room.revealed || room.votes.length === 0) return null;
+    const values = room.votes
       .map(v => v.value)
       .filter((v): v is number => v !== null);
     if (values.length === 0) return null;
@@ -60,12 +48,12 @@
 
   // Connect to WebSocket on mount
   onMount(() => {
-    connect(roomId);
+    room.connect(roomId);
   });
 
   // Disconnect on unmount
   onDestroy(() => {
-    disconnect();
+    room.disconnect();
   });
 </script>
 
@@ -93,15 +81,15 @@
 
   <section class="status">
     <div class="status-indicator">
-      <span class="dot {connected ? 'online' : 'offline'}"></span>
-      <span>{connected ? 'Conectado' : 'Conectando...'}</span>
+      <span class="dot {room.connected ? 'online' : 'offline'}"></span>
+      <span>{room.connected ? 'Conectado' : 'Conectando...'}</span>
     </div>
     <div class="participants">
-      <span>👤 {participants.length} participante{participants.length !== 1 ? 's' : ''}</span>
+      <span>👤 {room.participants.length} participante{room.participants.length !== 1 ? 's' : ''}</span>
     </div>
   </section>
 
-  {#if connected}
+  {#if room.connected}
     <section class="voting-section">
       <h2>Sua Estimativa</h2>
 
@@ -109,8 +97,8 @@
         {#each fibonacciCards as card}
           <button
             class="card"
-            class:selected={myVote === card}
-            disabled={revealed}
+            class:selected={room.myVote === card}
+            disabled={room.revealed}
             on:click={() => selectCard(card)}
           >
             {card}
@@ -123,7 +111,7 @@
           <strong>{votedCount}</strong> de <strong>{totalParticipants}</strong> votaram
         </p>
 
-        {#if !revealed}
+        {#if !room.revealed}
           <button
             class="action-btn reveal-btn"
             disabled={!allVoted}
@@ -138,7 +126,7 @@
         {/if}
       </div>
 
-      {#if revealed && votes.length > 0}
+      {#if room.revealed && room.votes.length > 0}
         <div class="results">
           <h3>Resultados</h3>
 
@@ -150,10 +138,10 @@
           {/if}
 
           <div class="votes-grid">
-            {#each votes as vote}
+            {#each room.votes as vote}
               <div class="vote-card">
                 <div class="vote-user">
-                  {vote.userId === currentUserId ? 'Você' : vote.userId.slice(0, 8)}
+                  {vote.userId === room.currentUserId ? 'Você' : vote.userId.slice(0, 8)}
                 </div>
                 <div class="vote-value">
                   {vote.value ?? '?'}
