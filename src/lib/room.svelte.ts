@@ -1,4 +1,5 @@
 import PartySocket from "partysocket";
+import { writable, get } from 'svelte/store';
 
 export type Participant = {
   id: string;
@@ -19,124 +20,138 @@ type MessageData =
   | { type: "reveal"; votes: Vote[] }
   | { type: "reset" };
 
-// Room state class - encapsula o estado reativo
-class RoomState {
-  socket = $state<PartySocket | null>(null);
-  participants = $state<Participant[]>([]);
-  currentUserId = $state<string | null>(null);
-  connected = $state(false);
-  votes = $state<Vote[]>([]);
-  revealed = $state(false);
-  myVote = $state<number | null>(null);
+// Stores Svelte
+const socketStore = writable<PartySocket | null>(null);
+const participantsStore = writable<Participant[]>([]);
+const currentUserIdStore = writable<string | null>(null);
+const connectedStore = writable(false);
+const votesStore = writable<Vote[]>([]);
+const revealedStore = writable(false);
+const myVoteStore = writable<number | null>(null);
 
-  private votesMap = new Map<string, Vote>();
+let votesMap = new Map<string, Vote>();
 
-  connect(roomId: string) {
+// Exporta stores para uso com $ syntax
+export const socket = socketStore;
+export const participants = participantsStore;
+export const currentUserId = currentUserIdStore;
+export const connected = connectedStore;
+export const votes = votesStore;
+export const revealed = revealedStore;
+export const myVote = myVoteStore;
+
+// Funções de controle
+export function connect(roomId: string) {
     const host =
       import.meta.env.MODE === "development"
         ? "localhost:1999"
         : "planningpoker.thiagovespa.partykit.dev";
 
-    this.socket = new PartySocket({
+    const ws = new PartySocket({
       host,
       room: roomId,
     });
 
-    this.socket.addEventListener("open", () => {
+    socketStore.set(ws);
+
+    ws.addEventListener("open", () => {
       console.log("Connected to room:", roomId);
-      this.connected = true;
+      connectedStore.set(true);
     });
 
-    this.socket.addEventListener("message", (event) => {
+    ws.addEventListener("message", (event) => {
       const data: MessageData = JSON.parse(event.data);
 
       if (data.type === "sync") {
-        this.currentUserId = data.you;
-        this.participants = data.participants.map((id) => ({
+        currentUserIdStore.set(data.you);
+        participantsStore.set(data.participants.map((id) => ({
           id,
           connected: true,
-        }));
-        this.revealed = data.revealed;
-        this.votesMap = new Map(data.votes.map((v) => [v.userId, v]));
-        this.votes = data.votes;
+        })));
+        revealedStore.set(data.revealed);
+        votesMap = new Map(data.votes.map((v) => [v.userId, v]));
+        votesStore.set(data.votes);
 
-        const myVoteData = this.votesMap.get(data.you);
+        const myVoteData = votesMap.get(data.you);
         if (myVoteData) {
-          this.myVote = myVoteData.value;
+          myVoteStore.set(myVoteData.value);
         }
       } else if (data.type === "user-joined") {
-        this.participants = [...this.participants, {
+        participantsStore.update((p) => [...p, {
           id: data.userId,
           connected: true,
-        }];
+        }]);
       } else if (data.type === "user-left") {
-        this.participants = this.participants.filter((p) => p.id !== data.userId);
-        this.votesMap.delete(data.userId);
-        this.votes = Array.from(this.votesMap.values());
+        participantsStore.update((p) => p.filter((participant) => participant.id !== data.userId));
+        votesMap.delete(data.userId);
+        votesStore.set(Array.from(votesMap.values()));
       } else if (data.type === "vote-cast") {
-        const existingVote = this.votesMap.get(data.userId);
-        this.votesMap.set(data.userId, {
+        const existingVote = votesMap.get(data.userId);
+        votesMap.set(data.userId, {
           userId: data.userId,
           value: existingVote?.value ?? null,
           revealed: false,
         });
-        this.votes = Array.from(this.votesMap.values());
+        votesStore.set(Array.from(votesMap.values()));
       } else if (data.type === "reveal") {
-        this.revealed = true;
-        this.votesMap = new Map(data.votes.map((v) => [v.userId, v]));
-        this.votes = data.votes;
+        revealedStore.set(true);
+        votesMap = new Map(data.votes.map((v) => [v.userId, v]));
+        votesStore.set(data.votes);
       } else if (data.type === "reset") {
-        this.votesMap = new Map();
-        this.votes = [];
-        this.revealed = false;
-        this.myVote = null;
+        votesMap = new Map();
+        votesStore.set([]);
+        revealedStore.set(false);
+        myVoteStore.set(null);
       }
     });
 
-    this.socket.addEventListener("close", () => {
+    ws.addEventListener("close", () => {
       console.log("Disconnected from room");
-      this.connected = false;
+      connectedStore.set(false);
     });
 
-    this.socket.addEventListener("error", (error) => {
+    ws.addEventListener("error", (error) => {
       console.error("WebSocket error:", error);
-      this.connected = false;
+      connectedStore.set(false);
     });
-  }
+}
 
-  disconnect() {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
-      this.connected = false;
-      this.participants = [];
-      this.currentUserId = null;
-      this.votesMap = new Map();
-      this.votes = [];
-      this.revealed = false;
-      this.myVote = null;
-    }
-  }
-
-  vote(value: number) {
-    if (this.socket && this.connected) {
-      this.myVote = value;
-      this.socket.send(JSON.stringify({ type: "vote", value }));
-    }
-  }
-
-  reveal() {
-    if (this.socket && this.connected) {
-      this.socket.send(JSON.stringify({ type: "reveal" }));
-    }
-  }
-
-  reset() {
-    if (this.socket && this.connected) {
-      this.socket.send(JSON.stringify({ type: "reset" }));
-    }
+export function disconnect() {
+  const ws = get(socketStore);
+  if (ws) {
+    ws.close();
+    socketStore.set(null);
+    connectedStore.set(false);
+    participantsStore.set([]);
+    currentUserIdStore.set(null);
+    votesMap = new Map();
+    votesStore.set([]);
+    revealedStore.set(false);
+    myVoteStore.set(null);
   }
 }
 
-// Exporta instância única do room state
-export const room = new RoomState();
+export function vote(value: number) {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    myVoteStore.set(value);
+    ws.send(JSON.stringify({ type: "vote", value }));
+  }
+}
+
+export function reveal() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "reveal" }));
+  }
+}
+
+export function reset() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "reset" }));
+  }
+}
