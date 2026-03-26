@@ -2,8 +2,8 @@ import PartySocket from "partysocket";
 import { writable, get } from 'svelte/store';
 
 export type Participant = {
-  id: string;
-  connected: boolean;
+  userId: string;
+  name: string;
 };
 
 export type Vote = {
@@ -13,13 +13,14 @@ export type Vote = {
 };
 
 type MessageData =
-  | { type: "sync"; participants: string[]; you: string; votes: Vote[]; revealed: boolean; anonymous: boolean }
-  | { type: "user-joined"; userId: string }
+  | { type: "sync"; participants: Participant[]; you: string; votes: Vote[]; revealed: boolean; anonymous: boolean }
+  | { type: "user-joined"; userId: string; name: string }
   | { type: "user-left"; userId: string }
   | { type: "vote-cast"; userId: string; hasVoted: boolean }
   | { type: "reveal"; votes: Vote[] }
   | { type: "reset" }
-  | { type: "anonymous-changed"; anonymous: boolean };
+  | { type: "anonymous-changed"; anonymous: boolean }
+  | { type: "name-changed"; userId: string; name: string };
 
 // Stores Svelte
 const socketStore = writable<PartySocket | null>(null);
@@ -67,10 +68,7 @@ export function connect(roomId: string) {
 
       if (data.type === "sync") {
         currentUserIdStore.set(data.you);
-        participantsStore.set(data.participants.map((id) => ({
-          id,
-          connected: true,
-        })));
+        participantsStore.set(data.participants);
         revealedStore.set(data.revealed);
         anonymousStore.set(data.anonymous);
         votesMap = new Map(data.votes.map((v) => [v.userId, v]));
@@ -82,13 +80,19 @@ export function connect(roomId: string) {
         }
       } else if (data.type === "user-joined") {
         participantsStore.update((p) => [...p, {
-          id: data.userId,
-          connected: true,
+          userId: data.userId,
+          name: data.name,
         }]);
       } else if (data.type === "user-left") {
-        participantsStore.update((p) => p.filter((participant) => participant.id !== data.userId));
+        participantsStore.update((p) => p.filter((participant) => participant.userId !== data.userId));
         votesMap.delete(data.userId);
         votesStore.set(Array.from(votesMap.values()));
+      } else if (data.type === "name-changed") {
+        participantsStore.update((p) => p.map((participant) =>
+          participant.userId === data.userId
+            ? { ...participant, name: data.name }
+            : participant
+        ));
       } else if (data.type === "vote-cast") {
         const existingVote = votesMap.get(data.userId);
         votesMap.set(data.userId, {
@@ -167,5 +171,13 @@ export function toggleAnonymous() {
   const isConnected = get(connectedStore);
   if (ws && isConnected) {
     ws.send(JSON.stringify({ type: "toggle-anonymous" }));
+  }
+}
+
+export function setName(name: string) {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "set-name", name }));
   }
 }

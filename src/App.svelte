@@ -7,6 +7,7 @@
     reveal,
     reset,
     toggleAnonymous,
+    setName,
     connected,
     participants,
     votes,
@@ -27,6 +28,15 @@
   }
 
   const fibonacciCards = [1, 2, 3, 5, 8, 13, 21];
+
+  let userName = '';
+  let hasEnteredName = false;
+
+  function handleEnterRoom() {
+    const name = userName.trim() || 'Anônimo';
+    setName(name);
+    hasEnteredName = true;
+  }
 
   function copyToClipboard() {
     navigator.clipboard.writeText(shareUrl);
@@ -76,12 +86,44 @@
 </script>
 
 <main>
-  <header>
-    <h1>🃏 Planning Poker</h1>
-    <p>Estimativas ágeis em tempo real, privado e simples</p>
-  </header>
+  {#if !hasEnteredName}
+    <!-- Tela de boas-vindas -->
+    <div class="welcome-screen">
+      <div class="welcome-card">
+        <h1>🃏 Planning Poker</h1>
+        <p class="welcome-subtitle">Estimativas ágeis em tempo real</p>
 
-  <section class="room-card">
+        <div class="welcome-content">
+          <p class="welcome-message">Bem-vindo! Antes de entrar na sala, nos diga seu nome:</p>
+
+          <form on:submit|preventDefault={handleEnterRoom}>
+            <input
+              type="text"
+              bind:value={userName}
+              placeholder="Digite seu nome..."
+              class="name-input"
+              maxlength="30"
+            />
+
+            <button type="submit" class="enter-btn">
+              Entrar na Sala
+            </button>
+          </form>
+
+          <p class="welcome-hint">
+            Seu nome será visível para outros participantes no <strong>modo transparente</strong>.
+          </p>
+        </div>
+      </div>
+    </div>
+  {:else}
+    <!-- Interface principal -->
+    <header>
+      <h1>🃏 Planning Poker</h1>
+      <p>Estimativas ágeis em tempo real, privado e simples</p>
+    </header>
+
+    <section class="room-card">
     <h2>Sua Sala de Votação</h2>
     <div class="share-section">
       <input
@@ -167,12 +209,15 @@
 
           <div class="votes-grid">
             {#each $votes as vote, index}
+              {@const participant = $participants.find(p => p.userId === vote.userId)}
               <div class="vote-card">
                 <div class="vote-user">
                   {#if $anonymous}
                     Participante {index + 1}
+                  {:else if vote.userId === $currentUserId}
+                    Você
                   {:else}
-                    {vote.userId === $currentUserId ? 'Você' : vote.userId.slice(0, 8)}
+                    {participant?.name || 'Anônimo'}
                   {/if}
                 </div>
                 <div class="vote-value">
@@ -194,6 +239,7 @@
       <a href="https://github.com" target="_blank">GitHub</a>
     </p>
   </footer>
+  {/if}
 </main>
 
 <style>
@@ -201,6 +247,93 @@
     max-width: 800px;
     margin: 0 auto;
     padding: var(--space-xl);
+  }
+
+  /* Tela de boas-vindas */
+  .welcome-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl);
+  }
+
+  .welcome-card {
+    background: var(--color-bg);
+    border: 2px solid var(--color-border);
+    border-radius: 12px;
+    padding: var(--space-xl);
+    max-width: 500px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  }
+
+  .welcome-card h1 {
+    font-size: 3rem;
+    margin-bottom: var(--space-sm);
+  }
+
+  .welcome-subtitle {
+    color: #666;
+    font-size: 1.125rem;
+    margin-bottom: var(--space-xl);
+  }
+
+  .welcome-content {
+    margin-top: var(--space-xl);
+  }
+
+  .welcome-message {
+    font-size: 1.125rem;
+    margin-bottom: var(--space-lg);
+    color: #1a1a1a;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .welcome-message {
+      color: #f5f5f5;
+    }
+  }
+
+  .name-input {
+    width: 100%;
+    padding: var(--space-lg);
+    font-size: 1.125rem;
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    margin-bottom: var(--space-md);
+    text-align: center;
+    transition: border-color 0.2s;
+  }
+
+  .name-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .enter-btn {
+    width: 100%;
+    padding: var(--space-lg);
+    font-size: 1.125rem;
+    font-weight: 600;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .enter-btn:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .welcome-hint {
+    margin-top: var(--space-lg);
+    font-size: 0.875rem;
+    color: #666;
+    line-height: 1.5;
   }
 
   header {
@@ -512,6 +645,18 @@
   @media (max-width: 640px) {
     main {
       padding: var(--space-md);
+    }
+
+    .welcome-screen {
+      padding: var(--space-md);
+    }
+
+    .welcome-card {
+      padding: var(--space-lg);
+    }
+
+    .welcome-card h1 {
+      font-size: 2.5rem;
     }
 
     header h1 {

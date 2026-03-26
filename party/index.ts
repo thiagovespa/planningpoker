@@ -6,27 +6,40 @@ interface Vote {
   revealed: boolean;
 }
 
+interface Participant {
+  userId: string;
+  name: string;
+}
+
 export default class PlanningPokerServer implements Party.Server {
   votes: Map<string, Vote>;
+  participants: Map<string, Participant>;
   revealed: boolean;
   anonymous: boolean;
 
   constructor(readonly room: Party.Room) {
     this.votes = new Map();
+    this.participants = new Map();
     this.revealed = false;
     this.anonymous = true; // Default: modo anônimo (segurança psicológica)
   }
 
-  onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
+  onConnect(conn: Party.Connection) {
     console.log(`User ${conn.id} connected to room ${this.room.id}`);
 
+    // Adiciona participante na lista (sem nome ainda)
+    this.participants.set(conn.id, {
+      userId: conn.id,
+      name: "",
+    });
+
     // Envia estado completo para o novo usuário
-    const participants = [...this.room.getConnections()].map((c) => c.id);
+    const participantsList = Array.from(this.participants.values());
 
     conn.send(
       JSON.stringify({
         type: "sync",
-        participants,
+        participants: participantsList,
         you: conn.id,
         votes: Array.from(this.votes.values()),
         revealed: this.revealed,
@@ -39,6 +52,7 @@ export default class PlanningPokerServer implements Party.Server {
       JSON.stringify({
         type: "user-joined",
         userId: conn.id,
+        name: "",
       }),
       [conn.id]
     );
@@ -98,14 +112,32 @@ export default class PlanningPokerServer implements Party.Server {
           anonymous: this.anonymous,
         })
       );
+    } else if (data.type === "set-name") {
+      // Define o nome do participante
+      const name = (data.name || "Anônimo").trim();
+
+      this.participants.set(sender.id, {
+        userId: sender.id,
+        name: name,
+      });
+
+      // Notifica todos sobre o nome do participante
+      this.room.broadcast(
+        JSON.stringify({
+          type: "name-changed",
+          userId: sender.id,
+          name: name,
+        })
+      );
     }
   }
 
   onClose(conn: Party.Connection) {
     console.log(`User ${conn.id} disconnected`);
 
-    // Remove voto do participante que saiu
+    // Remove voto e participante que saiu
     this.votes.delete(conn.id);
+    this.participants.delete(conn.id);
 
     this.room.broadcast(
       JSON.stringify({
