@@ -411,7 +411,7 @@
       <div class="header-top">
         <div class="room-name-section">
           {#if !isEditingRoomName}
-            <h1 class="room-name" on:click={startEditingRoomName}>{$roomName}</h1>
+            <h1 class="room-name">{$roomName}</h1>
             <button class="edit-room-btn" on:click={startEditingRoomName} title="Editar nome da sala">
               ✏️
             </button>
@@ -448,7 +448,7 @@
     </div>
     <div class="info-item user-info">
       {#if !isEditingName}
-        <span class="user-name" on:click={startEditingName}>
+        <span class="user-name">
           👤 {userName || 'Anônimo'}
         </span>
         <button class="edit-name-btn-small" on:click={startEditingName} title="Editar nome">
@@ -536,7 +536,13 @@
           {#each $stories as story, index}
             {@const estimate = estimatedStoriesMap.get(story.id)}
             <div class="story-item" class:active={index === $currentStoryIndex} class:estimated={!!estimate}>
-              <div class="story-content" on:click={() => handleSelectStory(index)}>
+              <div
+                class="story-content"
+                role="button"
+                tabindex="0"
+                on:click={() => handleSelectStory(index)}
+                on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleSelectStory(index)}
+              >
                 <div class="story-header-row">
                   <div class="story-title">{story.title}</div>
                   {#if estimate}
@@ -1935,13 +1941,6 @@
       background: #1a1a1a;
       border-color: #404040;
     }
-  }
-
-  .timer-section h2 {
-    margin: 0 0 var(--space-sm) 0;
-    font-size: 1rem;
-    text-align: center;
-    font-weight: 600;
   }
 
   .timer-display {

@@ -74,6 +74,28 @@ const estimateHistoryStore = writable<EstimateResult[]>([]);
 const roomNameStore = writable<string>("Sessão de Planning Poker");
 
 let votesMap = new Map<string, Vote>();
+let currentRoomId: string | null = null;
+let reconnectAttempts = 0;
+let reconnectTimer: number | null = null;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 2000; // 2 seconds
+
+// Helper function to safely send messages
+function sendMessage(message: object): boolean {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (!ws || !isConnected) {
+    console.warn("Cannot send message: not connected", message);
+    return false;
+  }
+  try {
+    ws.send(JSON.stringify(message));
+    return true;
+  } catch (e) {
+    console.error("Failed to send message:", e, message);
+    return false;
+  }
+}
 
 // Exporta stores para uso com $ syntax
 export const socket = socketStore;
@@ -93,6 +115,9 @@ export const roomName = roomNameStore;
 
 // Funções de controle
 export function connect(roomId: string) {
+    currentRoomId = roomId;
+    reconnectAttempts = 0;
+
     const host =
       import.meta.env.MODE === "development"
         ? "localhost:1999"
@@ -108,10 +133,21 @@ export function connect(roomId: string) {
     ws.addEventListener("open", () => {
       console.log("Connected to room:", roomId);
       connectedStore.set(true);
+      reconnectAttempts = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
     });
 
     ws.addEventListener("message", (event) => {
-      const data: MessageData = JSON.parse(event.data);
+      let data: MessageData;
+      try {
+        data = JSON.parse(event.data);
+      } catch (e) {
+        console.error("Failed to parse message:", e);
+        return;
+      }
 
       if (data.type === "sync") {
         currentUserIdStore.set(data.you);
@@ -239,6 +275,19 @@ export function connect(roomId: string) {
     ws.addEventListener("close", () => {
       console.log("Disconnected from room");
       connectedStore.set(false);
+
+      // Auto-reconnect if not manually disconnected
+      if (currentRoomId && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++;
+        console.log(`Attempting reconnect ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}...`);
+        reconnectTimer = window.setTimeout(() => {
+          if (currentRoomId) {
+            connect(currentRoomId);
+          }
+        }, RECONNECT_DELAY);
+      } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error("Max reconnection attempts reached");
+      }
     });
 
     ws.addEventListener("error", (error) => {
@@ -249,6 +298,15 @@ export function connect(roomId: string) {
 
 export function disconnect() {
   const ws = get(socketStore);
+
+  // Clear reconnect state to prevent auto-reconnect
+  currentRoomId = null;
+  reconnectAttempts = 0;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
   if (ws) {
     ws.close();
     socketStore.set(null);
@@ -263,106 +321,55 @@ export function disconnect() {
 }
 
 export function vote(value: number | null) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
+  if (sendMessage({ type: "vote", value })) {
     myVoteStore.set(value);
-    ws.send(JSON.stringify({ type: "vote", value }));
   }
 }
 
 export function reveal() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "reveal" }));
-  }
+  sendMessage({ type: "reveal" });
 }
 
 export function reset() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "reset" }));
-  }
+  sendMessage({ type: "reset" });
 }
 
 export function toggleAnonymous() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "toggle-anonymous" }));
-  }
+  sendMessage({ type: "toggle-anonymous" });
 }
 
 export function setName(name: string) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "set-name", name }));
-  }
+  sendMessage({ type: "set-name", name });
 }
 
 export function startTimer() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "start-timer" }));
-  }
+  sendMessage({ type: "start-timer" });
 }
 
 export function pauseTimer() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "pause-timer" }));
-  }
+  sendMessage({ type: "pause-timer" });
 }
 
 export function resetTimer() {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "reset-timer" }));
-  }
+  sendMessage({ type: "reset-timer" });
 }
 
 export function setTimerDuration(duration: number) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "set-timer-duration", duration }));
-  }
+  sendMessage({ type: "set-timer-duration", duration });
 }
 
 export function addStory(title: string, description: string) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "add-story", title, description }));
-  }
+  sendMessage({ type: "add-story", title, description });
 }
 
 export function selectStory(index: number) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "select-story", index }));
-  }
+  sendMessage({ type: "select-story", index });
 }
 
 export function removeStory(index: number) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "remove-story", index }));
-  }
+  sendMessage({ type: "remove-story", index });
 }
 
 export function setRoomName(name: string) {
-  const ws = get(socketStore);
-  const isConnected = get(connectedStore);
-  if (ws && isConnected) {
-    ws.send(JSON.stringify({ type: "set-room-name", name }));
-  }
+  sendMessage({ type: "set-room-name", name });
 }
