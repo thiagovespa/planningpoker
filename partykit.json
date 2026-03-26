@@ -1,4 +1,5 @@
 {
   "name": "planningpoker",
-  "main": "party/index.ts"
+  "main": "party/index.ts",
+  "port": 1999
 }

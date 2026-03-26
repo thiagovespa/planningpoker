@@ -1,22 +1,33 @@
 import type * as Party from "partykit/server";
 
+interface Vote {
+  userId: string;
+  value: number | null;
+  revealed: boolean;
+}
+
 export default class PlanningPokerServer implements Party.Server {
-  constructor(readonly room: Party.Room) {}
+  votes: Map<string, Vote>;
+  revealed: boolean;
+
+  constructor(readonly room: Party.Room) {
+    this.votes = new Map();
+    this.revealed = false;
+  }
 
   onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
-    // Novo participante conectou
-    console.log(
-      `User ${conn.id} connected to room ${this.room.id}`
-    );
+    console.log(`User ${conn.id} connected to room ${this.room.id}`);
 
-    // Envia lista atual de participantes para o novo usuário
+    // Envia estado completo para o novo usuário
     const participants = [...this.room.getConnections()].map((c) => c.id);
 
     conn.send(
       JSON.stringify({
-        type: "participants",
+        type: "sync",
         participants,
         you: conn.id,
+        votes: Array.from(this.votes.values()),
+        revealed: this.revealed,
       })
     );
 
@@ -26,24 +37,62 @@ export default class PlanningPokerServer implements Party.Server {
         type: "user-joined",
         userId: conn.id,
       }),
-      [conn.id] // Exclui o próprio usuário
+      [conn.id]
     );
   }
 
   onMessage(message: string, sender: Party.Connection) {
-    // Broadcast de mensagens para todos
-    this.room.broadcast(
-      JSON.stringify({
-        type: "message",
+    const data = JSON.parse(message);
+
+    if (data.type === "vote") {
+      // Armazena o voto
+      this.votes.set(sender.id, {
         userId: sender.id,
-        message,
-      })
-    );
+        value: data.value,
+        revealed: this.revealed,
+      });
+
+      // Broadcast (sem revelar o valor ainda)
+      this.room.broadcast(
+        JSON.stringify({
+          type: "vote-cast",
+          userId: sender.id,
+          hasVoted: true,
+        })
+      );
+    } else if (data.type === "reveal") {
+      // Revela todos os votos
+      this.revealed = true;
+
+      const votes = Array.from(this.votes.values()).map((vote) => ({
+        ...vote,
+        revealed: true,
+      }));
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "reveal",
+          votes,
+        })
+      );
+    } else if (data.type === "reset") {
+      // Reinicia a votação
+      this.votes.clear();
+      this.revealed = false;
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "reset",
+        })
+      );
+    }
   }
 
   onClose(conn: Party.Connection) {
-    // Participante desconectou
     console.log(`User ${conn.id} disconnected`);
+
+    // Remove voto do participante que saiu
+    this.votes.delete(conn.id);
 
     this.room.broadcast(
       JSON.stringify({

@@ -1,6 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { room } from './lib/room.svelte';
+  import {
+    connect,
+    disconnect,
+    vote,
+    reveal,
+    reset,
+    connected,
+    participants,
+    votes,
+    revealed,
+    myVote,
+    currentUserId
+  } from './lib/room.svelte';
 
   // Get roomId from URL or generate new
   const urlParams = new URLSearchParams(window.location.search);
@@ -12,19 +24,48 @@
     window.history.replaceState({}, '', `?room=${roomId}`);
   }
 
+  const fibonacciCards = [1, 2, 3, 5, 8, 13, 21];
+
   function copyToClipboard() {
     navigator.clipboard.writeText(shareUrl);
     alert('Link copiado!');
   }
 
+  function selectCard(value: number) {
+    vote(value);
+  }
+
+  function handleReveal() {
+    reveal();
+  }
+
+  function handleReset() {
+    reset();
+  }
+
+  // Conta quantos participantes já votaram
+  $: votedCount = votes.length;
+  $: totalParticipants = participants.length;
+  $: allVoted = votedCount === totalParticipants && totalParticipants > 0;
+
+  // Calcula média dos votos revelados
+  $: average = (() => {
+    if (!revealed || votes.length === 0) return null;
+    const values = votes
+      .map(v => v.value)
+      .filter((v): v is number => v !== null);
+    if (values.length === 0) return null;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  })();
+
   // Connect to WebSocket on mount
   onMount(() => {
-    room.connect(roomId);
+    connect(roomId);
   });
 
   // Disconnect on unmount
   onDestroy(() => {
-    room.disconnect();
+    disconnect();
   });
 </script>
 
@@ -52,13 +93,78 @@
 
   <section class="status">
     <div class="status-indicator">
-      <span class="dot {room.connected ? 'online' : 'offline'}"></span>
-      <span>{room.connected ? 'Conectado' : 'Conectando...'}</span>
+      <span class="dot {connected ? 'online' : 'offline'}"></span>
+      <span>{connected ? 'Conectado' : 'Conectando...'}</span>
     </div>
     <div class="participants">
-      <span>👤 {room.participants.length} participante{room.participants.length !== 1 ? 's' : ''}</span>
+      <span>👤 {participants.length} participante{participants.length !== 1 ? 's' : ''}</span>
     </div>
   </section>
+
+  {#if connected}
+    <section class="voting-section">
+      <h2>Sua Estimativa</h2>
+
+      <div class="cards">
+        {#each fibonacciCards as card}
+          <button
+            class="card"
+            class:selected={myVote === card}
+            disabled={revealed}
+            on:click={() => selectCard(card)}
+          >
+            {card}
+          </button>
+        {/each}
+      </div>
+
+      <div class="voting-status">
+        <p>
+          <strong>{votedCount}</strong> de <strong>{totalParticipants}</strong> votaram
+        </p>
+
+        {#if !revealed}
+          <button
+            class="action-btn reveal-btn"
+            disabled={!allVoted}
+            on:click={handleReveal}
+          >
+            🎭 Revelar Votos
+          </button>
+        {:else}
+          <button class="action-btn reset-btn" on:click={handleReset}>
+            🔄 Nova Rodada
+          </button>
+        {/if}
+      </div>
+
+      {#if revealed && votes.length > 0}
+        <div class="results">
+          <h3>Resultados</h3>
+
+          {#if average !== null}
+            <div class="average">
+              <span class="label">Média:</span>
+              <span class="value">{average.toFixed(1)}</span>
+            </div>
+          {/if}
+
+          <div class="votes-grid">
+            {#each votes as vote}
+              <div class="vote-card">
+                <div class="vote-user">
+                  {vote.userId === currentUserId ? 'Você' : vote.userId.slice(0, 8)}
+                </div>
+                <div class="vote-value">
+                  {vote.value ?? '?'}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <footer>
     <p>
@@ -200,6 +306,173 @@
     text-decoration: underline;
   }
 
+  .voting-section {
+    background: var(--color-bg);
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    padding: var(--space-xl);
+    margin-bottom: var(--space-lg);
+  }
+
+  .voting-section h2 {
+    margin-bottom: var(--space-lg);
+  }
+
+  .cards {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-xl);
+  }
+
+  .card {
+    width: 80px;
+    height: 110px;
+    background: white;
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 2rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #1a1a1a;
+  }
+
+  .card:hover:not(:disabled) {
+    transform: translateY(-4px);
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .card.selected {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+    transform: translateY(-8px);
+  }
+
+  .card:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .voting-status {
+    text-align: center;
+    margin-bottom: var(--space-lg);
+  }
+
+  .voting-status p {
+    margin-bottom: var(--space-md);
+    font-size: 1.125rem;
+  }
+
+  .action-btn {
+    padding: var(--space-md) var(--space-xl);
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .reveal-btn {
+    background: var(--color-success);
+    color: white;
+  }
+
+  .reveal-btn:hover:not(:disabled) {
+    background: #16a34a;
+  }
+
+  .reveal-btn:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+  }
+
+  .reset-btn {
+    background: var(--color-warning);
+    color: white;
+  }
+
+  .reset-btn:hover {
+    background: #ea580c;
+  }
+
+  .results {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-xl);
+    border-top: 2px solid var(--color-border);
+  }
+
+  .results h3 {
+    margin-bottom: var(--space-lg);
+    text-align: center;
+  }
+
+  .average {
+    text-align: center;
+    margin-bottom: var(--space-lg);
+    padding: var(--space-lg);
+    background: #f0fdf4;
+    border-radius: 8px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .average {
+      background: #064e3b;
+    }
+  }
+
+  .average .label {
+    font-size: 1rem;
+    color: #666;
+    margin-right: var(--space-sm);
+  }
+
+  .average .value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--color-success);
+  }
+
+  .votes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: var(--space-md);
+  }
+
+  .vote-card {
+    background: white;
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    padding: var(--space-md);
+    text-align: center;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .vote-card {
+      background: #2a2a2a;
+      color: #f5f5f5;
+    }
+  }
+
+  .vote-user {
+    font-size: 0.875rem;
+    color: #666;
+    margin-bottom: var(--space-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .vote-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--color-primary);
+  }
+
   @media (max-width: 640px) {
     main {
       padding: var(--space-md);
@@ -217,6 +490,20 @@
       flex-direction: column;
       gap: var(--space-sm);
       align-items: flex-start;
+    }
+
+    .cards {
+      gap: var(--space-sm);
+    }
+
+    .card {
+      width: 60px;
+      height: 85px;
+      font-size: 1.5rem;
+    }
+
+    .votes-grid {
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     }
   }
 </style>

@@ -1,90 +1,137 @@
 import PartySocket from "partysocket";
 
-type Participant = {
+export type Participant = {
   id: string;
   connected: boolean;
 };
 
+export type Vote = {
+  userId: string;
+  value: number | null;
+  revealed: boolean;
+};
+
 type MessageData =
-  | { type: "participants"; participants: string[]; you: string }
+  | { type: "sync"; participants: string[]; you: string; votes: Vote[]; revealed: boolean }
   | { type: "user-joined"; userId: string }
-  | { type: "user-left"; userId: string };
+  | { type: "user-left"; userId: string }
+  | { type: "vote-cast"; userId: string; hasVoted: boolean }
+  | { type: "reveal"; votes: Vote[] }
+  | { type: "reset" };
 
-class RoomStore {
-  socket: PartySocket | null = $state(null);
-  participants = $state<Participant[]>([]);
-  currentUserId = $state<string | null>(null);
-  connected = $state(false);
+// Estado global reativo
+export let socket = $state<PartySocket | null>(null);
+export let participants = $state<Participant[]>([]);
+export let currentUserId = $state<string | null>(null);
+export let connected = $state(false);
+export let votes = $state<Vote[]>([]);
+export let revealed = $state(false);
+export let myVote = $state<number | null>(null);
 
-  connect(roomId: string) {
-    // Conecta ao servidor Partykit
-    // Em dev: localhost:1999
-    // Em prod: seu-projeto.partykit.dev
-    const host =
-      import.meta.env.MODE === "development"
-        ? "localhost:1999"
-        : "planningpoker.thiagovespa.partykit.dev";
+let votesMap = new Map<string, Vote>();
 
-    this.socket = new PartySocket({
-      host,
-      room: roomId,
-    });
+export function connect(roomId: string) {
+  const host =
+    import.meta.env.MODE === "development"
+      ? "localhost:1999"
+      : "planningpoker.thiagovespa.partykit.dev";
 
-    this.socket.addEventListener("open", () => {
-      console.log("Connected to room:", roomId);
-      this.connected = true;
-    });
+  socket = new PartySocket({
+    host,
+    room: roomId,
+  });
 
-    this.socket.addEventListener("message", (event) => {
-      const data: MessageData = JSON.parse(event.data);
+  socket.addEventListener("open", () => {
+    console.log("Connected to room:", roomId);
+    connected = true;
+  });
 
-      if (data.type === "participants") {
-        // Lista inicial de participantes
-        this.currentUserId = data.you;
-        this.participants = data.participants.map((id) => ({
-          id,
-          connected: true,
-        }));
-      } else if (data.type === "user-joined") {
-        // Novo participante
-        this.participants.push({
-          id: data.userId,
-          connected: true,
-        });
-      } else if (data.type === "user-left") {
-        // Participante saiu
-        this.participants = this.participants.filter(
-          (p) => p.id !== data.userId
-        );
+  socket.addEventListener("message", (event) => {
+    const data: MessageData = JSON.parse(event.data);
+
+    if (data.type === "sync") {
+      currentUserId = data.you;
+      participants = data.participants.map((id) => ({
+        id,
+        connected: true,
+      }));
+      revealed = data.revealed;
+      votesMap = new Map(data.votes.map((v) => [v.userId, v]));
+      votes = data.votes;
+
+      const myVoteData = votesMap.get(data.you);
+      if (myVoteData) {
+        myVote = myVoteData.value;
       }
-    });
-
-    this.socket.addEventListener("close", () => {
-      console.log("Disconnected from room");
-      this.connected = false;
-    });
-
-    this.socket.addEventListener("error", (error) => {
-      console.error("WebSocket error:", error);
-      this.connected = false;
-    });
-  }
-
-  disconnect() {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
-      this.connected = false;
-      this.participants = [];
-      this.currentUserId = null;
+    } else if (data.type === "user-joined") {
+      participants = [...participants, {
+        id: data.userId,
+        connected: true,
+      }];
+    } else if (data.type === "user-left") {
+      participants = participants.filter((p) => p.id !== data.userId);
+      votesMap.delete(data.userId);
+      votes = Array.from(votesMap.values());
+    } else if (data.type === "vote-cast") {
+      const existingVote = votesMap.get(data.userId);
+      votesMap.set(data.userId, {
+        userId: data.userId,
+        value: existingVote?.value ?? null,
+        revealed: false,
+      });
+      votes = Array.from(votesMap.values());
+    } else if (data.type === "reveal") {
+      revealed = true;
+      votesMap = new Map(data.votes.map((v) => [v.userId, v]));
+      votes = data.votes;
+    } else if (data.type === "reset") {
+      votesMap = new Map();
+      votes = [];
+      revealed = false;
+      myVote = null;
     }
-  }
+  });
 
-  sendMessage(message: string) {
-    if (this.socket && this.connected) {
-      this.socket.send(message);
-    }
+  socket.addEventListener("close", () => {
+    console.log("Disconnected from room");
+    connected = false;
+  });
+
+  socket.addEventListener("error", (error) => {
+    console.error("WebSocket error:", error);
+    connected = false;
+  });
+}
+
+export function disconnect() {
+  if (socket) {
+    socket.close();
+    socket = null;
+    connected = false;
+    participants = [];
+    currentUserId = null;
+    votesMap = new Map();
+    votes = [];
+    revealed = false;
+    myVote = null;
   }
 }
 
-export const room = new RoomStore();
+export function vote(value: number) {
+  if (socket && connected) {
+    myVote = value;
+    socket.send(JSON.stringify({ type: "vote", value }));
+  }
+}
+
+export function reveal() {
+  if (socket && connected) {
+    socket.send(JSON.stringify({ type: "reveal" }));
+  }
+}
+
+export function reset() {
+  if (socket && connected) {
+    socket.send(JSON.stringify({ type: "reset" }));
+  }
+}
