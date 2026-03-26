@@ -9,10 +9,12 @@ interface Vote {
 export default class PlanningPokerServer implements Party.Server {
   votes: Map<string, Vote>;
   revealed: boolean;
+  anonymous: boolean;
 
   constructor(readonly room: Party.Room) {
     this.votes = new Map();
     this.revealed = false;
+    this.anonymous = true; // Default: modo anônimo (segurança psicológica)
   }
 
   onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
@@ -28,6 +30,7 @@ export default class PlanningPokerServer implements Party.Server {
         you: conn.id,
         votes: Array.from(this.votes.values()),
         revealed: this.revealed,
+        anonymous: this.anonymous,
       })
     );
 
@@ -83,6 +86,16 @@ export default class PlanningPokerServer implements Party.Server {
       this.room.broadcast(
         JSON.stringify({
           type: "reset",
+        })
+      );
+    } else if (data.type === "toggle-anonymous") {
+      // Alterna entre modo anônimo e transparente
+      this.anonymous = !this.anonymous;
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "anonymous-changed",
+          anonymous: this.anonymous,
         })
       );
     }

@@ -13,12 +13,13 @@ export type Vote = {
 };
 
 type MessageData =
-  | { type: "sync"; participants: string[]; you: string; votes: Vote[]; revealed: boolean }
+  | { type: "sync"; participants: string[]; you: string; votes: Vote[]; revealed: boolean; anonymous: boolean }
   | { type: "user-joined"; userId: string }
   | { type: "user-left"; userId: string }
   | { type: "vote-cast"; userId: string; hasVoted: boolean }
   | { type: "reveal"; votes: Vote[] }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "anonymous-changed"; anonymous: boolean };
 
 // Stores Svelte
 const socketStore = writable<PartySocket | null>(null);
@@ -28,6 +29,7 @@ const connectedStore = writable(false);
 const votesStore = writable<Vote[]>([]);
 const revealedStore = writable(false);
 const myVoteStore = writable<number | null>(null);
+const anonymousStore = writable(true); // Default: modo anônimo
 
 let votesMap = new Map<string, Vote>();
 
@@ -39,6 +41,7 @@ export const connected = connectedStore;
 export const votes = votesStore;
 export const revealed = revealedStore;
 export const myVote = myVoteStore;
+export const anonymous = anonymousStore;
 
 // Funções de controle
 export function connect(roomId: string) {
@@ -69,6 +72,7 @@ export function connect(roomId: string) {
           connected: true,
         })));
         revealedStore.set(data.revealed);
+        anonymousStore.set(data.anonymous);
         votesMap = new Map(data.votes.map((v) => [v.userId, v]));
         votesStore.set(data.votes);
 
@@ -102,6 +106,8 @@ export function connect(roomId: string) {
         votesStore.set([]);
         revealedStore.set(false);
         myVoteStore.set(null);
+      } else if (data.type === "anonymous-changed") {
+        anonymousStore.set(data.anonymous);
       }
     });
 
@@ -153,5 +159,13 @@ export function reset() {
   const isConnected = get(connectedStore);
   if (ws && isConnected) {
     ws.send(JSON.stringify({ type: "reset" }));
+  }
+}
+
+export function toggleAnonymous() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "toggle-anonymous" }));
   }
 }

@@ -6,12 +6,14 @@
     vote,
     reveal,
     reset,
+    toggleAnonymous,
     connected,
     participants,
     votes,
     revealed,
     myVote,
-    currentUserId
+    currentUserId,
+    anonymous
   } from './lib/room.svelte';
 
   // Get roomId from URL or generate new
@@ -41,6 +43,10 @@
 
   function handleReset() {
     reset();
+  }
+
+  function handleToggleAnonymous() {
+    toggleAnonymous();
   }
 
   // Conta quantos participantes já votaram
@@ -123,19 +129,29 @@
           <strong>{votedCount}</strong> de <strong>{totalParticipants}</strong> votaram
         </p>
 
-        {#if !$revealed}
+        <div class="action-buttons">
+          {#if !$revealed}
+            <button
+              class="action-btn reveal-btn"
+              disabled={!allVoted}
+              on:click={handleReveal}
+            >
+              🎭 Revelar Votos
+            </button>
+          {:else}
+            <button class="action-btn reset-btn" on:click={handleReset}>
+              🔄 Nova Rodada
+            </button>
+          {/if}
+
           <button
-            class="action-btn reveal-btn"
-            disabled={!allVoted}
-            on:click={handleReveal}
+            class="action-btn anonymous-btn"
+            on:click={handleToggleAnonymous}
+            title={$anonymous ? 'Modo Anônimo (clique para mostrar nomes)' : 'Modo Transparente (clique para ocultar nomes)'}
           >
-            🎭 Revelar Votos
+            {$anonymous ? '🎭 Anônimo' : '👁️ Transparente'}
           </button>
-        {:else}
-          <button class="action-btn reset-btn" on:click={handleReset}>
-            🔄 Nova Rodada
-          </button>
-        {/if}
+        </div>
       </div>
 
       {#if $revealed && $votes.length > 0}
@@ -150,10 +166,14 @@
           {/if}
 
           <div class="votes-grid">
-            {#each $votes as vote}
+            {#each $votes as vote, index}
               <div class="vote-card">
                 <div class="vote-user">
-                  {vote.userId === $currentUserId ? 'Você' : vote.userId.slice(0, 8)}
+                  {#if $anonymous}
+                    Participante {index + 1}
+                  {:else}
+                    {vote.userId === $currentUserId ? 'Você' : vote.userId.slice(0, 8)}
+                  {/if}
                 </div>
                 <div class="vote-value">
                   {vote.value ?? '?'}
@@ -367,6 +387,13 @@
     font-size: 1.125rem;
   }
 
+  .action-buttons {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
   .action-btn {
     padding: var(--space-md) var(--space-xl);
     font-size: 1rem;
@@ -398,6 +425,15 @@
 
   .reset-btn:hover {
     background: #ea580c;
+  }
+
+  .anonymous-btn {
+    background: #6b7280;
+    color: white;
+  }
+
+  .anonymous-btn:hover {
+    background: #4b5563;
   }
 
   .results {
