@@ -12,15 +12,25 @@ export type Vote = {
   revealed: boolean;
 };
 
+export type TimerState = {
+  duration: number;
+  startTime: number | null;
+  isRunning: boolean;
+};
+
 type MessageData =
-  | { type: "sync"; participants: Participant[]; you: string; votes: Vote[]; revealed: boolean; anonymous: boolean }
+  | { type: "sync"; participants: Participant[]; you: string; votes: Vote[]; revealed: boolean; anonymous: boolean; timer: { duration: number; isRunning: boolean; elapsed: number } }
   | { type: "user-joined"; userId: string; name: string }
   | { type: "user-left"; userId: string }
   | { type: "vote-cast"; userId: string; hasVoted: boolean }
   | { type: "reveal"; votes: Vote[] }
   | { type: "reset" }
   | { type: "anonymous-changed"; anonymous: boolean }
-  | { type: "name-changed"; userId: string; name: string };
+  | { type: "name-changed"; userId: string; name: string }
+  | { type: "timer-started"; duration: number }
+  | { type: "timer-paused" }
+  | { type: "timer-reset" }
+  | { type: "timer-duration-changed"; duration: number };
 
 // Stores Svelte
 const socketStore = writable<PartySocket | null>(null);
@@ -31,6 +41,11 @@ const votesStore = writable<Vote[]>([]);
 const revealedStore = writable(false);
 const myVoteStore = writable<number | null>(null);
 const anonymousStore = writable(true); // Default: modo anônimo
+const timerStore = writable<TimerState>({
+  duration: 20,
+  startTime: null,
+  isRunning: false,
+});
 
 let votesMap = new Map<string, Vote>();
 
@@ -43,6 +58,7 @@ export const votes = votesStore;
 export const revealed = revealedStore;
 export const myVote = myVoteStore;
 export const anonymous = anonymousStore;
+export const timer = timerStore;
 
 // Funções de controle
 export function connect(roomId: string) {
@@ -78,6 +94,16 @@ export function connect(roomId: string) {
         if (myVoteData) {
           myVoteStore.set(myVoteData.value);
         }
+
+        // Reconstrói o timer usando elapsed do servidor e clock local
+        const timerState: TimerState = {
+          duration: data.timer.duration,
+          isRunning: data.timer.isRunning,
+          startTime: data.timer.isRunning
+            ? Date.now() - (data.timer.elapsed * 1000)
+            : null,
+        };
+        timerStore.set(timerState);
       } else if (data.type === "user-joined") {
         participantsStore.update((p) => [...p, {
           userId: data.userId,
@@ -94,12 +120,17 @@ export function connect(roomId: string) {
             : participant
         ));
       } else if (data.type === "vote-cast") {
-        const existingVote = votesMap.get(data.userId);
-        votesMap.set(data.userId, {
-          userId: data.userId,
-          value: existingVote?.value ?? null,
-          revealed: false,
-        });
+        if (data.hasVoted) {
+          const existingVote = votesMap.get(data.userId);
+          votesMap.set(data.userId, {
+            userId: data.userId,
+            value: existingVote?.value ?? null,
+            revealed: false,
+          });
+        } else {
+          // Remove o voto se hasVoted for false (desmarcou)
+          votesMap.delete(data.userId);
+        }
         votesStore.set(Array.from(votesMap.values()));
       } else if (data.type === "reveal") {
         revealedStore.set(true);
@@ -112,6 +143,31 @@ export function connect(roomId: string) {
         myVoteStore.set(null);
       } else if (data.type === "anonymous-changed") {
         anonymousStore.set(data.anonymous);
+      } else if (data.type === "timer-started") {
+        const now = Date.now();
+        timerStore.update((timer) => ({
+          ...timer,
+          duration: data.duration,
+          startTime: now,
+          isRunning: true,
+        }));
+      } else if (data.type === "timer-paused") {
+        timerStore.update((timer) => ({
+          ...timer,
+          isRunning: false,
+        }));
+      } else if (data.type === "timer-reset") {
+        timerStore.update((timer) => ({
+          ...timer,
+          startTime: null,
+          isRunning: false,
+        }));
+      } else if (data.type === "timer-duration-changed") {
+        timerStore.set({
+          duration: data.duration,
+          startTime: null,
+          isRunning: false,
+        });
       }
     });
 
@@ -141,7 +197,7 @@ export function disconnect() {
   }
 }
 
-export function vote(value: number) {
+export function vote(value: number | null) {
   const ws = get(socketStore);
   const isConnected = get(connectedStore);
   if (ws && isConnected) {
@@ -179,5 +235,37 @@ export function setName(name: string) {
   const isConnected = get(connectedStore);
   if (ws && isConnected) {
     ws.send(JSON.stringify({ type: "set-name", name }));
+  }
+}
+
+export function startTimer() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "start-timer" }));
+  }
+}
+
+export function pauseTimer() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "pause-timer" }));
+  }
+}
+
+export function resetTimer() {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "reset-timer" }));
+  }
+}
+
+export function setTimerDuration(duration: number) {
+  const ws = get(socketStore);
+  const isConnected = get(connectedStore);
+  if (ws && isConnected) {
+    ws.send(JSON.stringify({ type: "set-timer-duration", duration }));
   }
 }
